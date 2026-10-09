@@ -46,6 +46,13 @@ object SafetyLimits {
         both(0x2920, 0x03, 0L..1_000L)
         both(0x2920, 0x04, 0L..1_000L)
 
+        // Torque/speed maps (cfg_tsmap): brake 07..0E, neutral 1B..22, drive 24..2B
+        // as (level, rpm) pairs; level 32767 = 100 %
+        for (base in listOf(0x07, 0x1B, 0x24)) for (point in 0..3) {
+            both(0x3813, base + 2 * point, 0L..32_767L)
+            both(0x3813, base + 2 * point + 1, 0L..11_000L)
+        }
+
         // Ramps (cfg_ramps, cfg_rampl) and smoothing (cfg_smoothing)
         both(0x291C, 0x02, 10L..10_000L)
         for (sub in listOf(0x07, 0x0B, 0x0D, 0x0E)) both(0x2920, sub, 10L..10_000L)

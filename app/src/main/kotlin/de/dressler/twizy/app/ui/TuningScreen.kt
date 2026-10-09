@@ -68,7 +68,7 @@ fun TuningScreen(state: UiState, vm: MainViewModel) {
             style = MaterialTheme.typography.bodySmall,
         )
 
-        state.tuningProblems.forEach { Text("• $it", color = MaterialTheme.colorScheme.error) }
+        state.problems.forEach { Text("• $it", color = MaterialTheme.colorScheme.error) }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { vm.previewTuning(tuning) }, enabled = idle) { Text("Preview changes") }
@@ -79,7 +79,7 @@ fun TuningScreen(state: UiState, vm: MainViewModel) {
 }
 
 @Composable
-private fun Setting(label: String, value: Int, unit: String, range: IntRange, factory: Int, onChange: (Int) -> Unit) {
+fun Setting(label: String, value: Int, unit: String, range: IntRange, factory: Int, onChange: (Int) -> Unit) {
     Text("$label: $value $unit" + if (value != factory) "  (factory $factory)" else "", style = MaterialTheme.typography.bodyLarge)
     Slider(
         value = value.coerceIn(range).toFloat(),

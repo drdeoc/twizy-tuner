@@ -87,21 +87,20 @@ class SafeWriter(
         }
 
         var enteredPreOp = false
-        if (plan.requiresPreOp) {
-            try {
-                if (sevcon.nmtState() != NmtState.PRE_OPERATIONAL) {
-                    if (!guard.confirmVehicleSafe()) error("Driver did not confirm that the vehicle is safe")
-                    enteredPreOp = true
-                    sevcon.enterPreOperational()
-                }
-            } catch (e: Exception) {
-                return WriteResult.Failed(e, emptyList(), emptyList(), restoreOperational(enteredPreOp))
-            }
-        }
-
         val written = mutableListOf<PlannedChange>()
         val result = try {
-            for (change in plan.changes) {
+            // Like OVMS: operational-mode values first, so the motor is disabled as briefly as possible.
+            val (opChanges, preOpChanges) = plan.changes.partition { !it.parameter.requiresPreOp }
+            for (change in opChanges) {
+                written += change
+                writeAndVerify(change.parameter, change.newValue)
+            }
+            if (preOpChanges.isNotEmpty() && sevcon.nmtState() != NmtState.PRE_OPERATIONAL) {
+                if (!guard.confirmVehicleSafe()) error("Driver did not confirm that the vehicle is safe")
+                enteredPreOp = true
+                sevcon.enterPreOperational()
+            }
+            for (change in preOpChanges) {
                 written += change
                 writeAndVerify(change.parameter, change.newValue)
             }

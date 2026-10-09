@@ -24,6 +24,14 @@ import de.dressler.twizy.core.transport.Transport
 import de.dressler.twizy.core.tuning.DriveTuning
 import de.dressler.twizy.core.tuning.DriveTuningPlanner
 import de.dressler.twizy.core.tuning.DriveTuningReader
+import de.dressler.twizy.core.tuning.DrivingFeel
+import de.dressler.twizy.core.tuning.DrivingFeelPlanner
+import de.dressler.twizy.core.tuning.DrivingFeelReader
+import de.dressler.twizy.core.tuning.Profile
+import de.dressler.twizy.core.tuning.ProfilePlanner
+import de.dressler.twizy.core.tuning.ProfileStore
+import de.dressler.twizy.core.tuning.TorqueSpeedMapPlanner
+import de.dressler.twizy.core.tuning.TorqueSpeedMaps
 import de.dressler.twizy.core.tuning.TuningException
 import de.dressler.twizy.core.write.WriteRequest
 import de.dressler.twizy.core.write.PreOpGuard
@@ -44,7 +52,7 @@ data class Adapter(val name: String, val address: String)
 
 data class ParameterRow(val parameter: Parameter, val value: String?, val error: String?)
 
-enum class Screen { HOME, PARAMETERS, BACKUPS, TUNING, PREVIEW }
+enum class Screen { HOME, PARAMETERS, BACKUPS, TUNING, FEEL, MAPS, PROFILES, PREVIEW }
 
 /** Changes waiting for the driver's OK, shown on the preview screen. */
 data class WritePreview(
@@ -70,7 +78,11 @@ data class UiState(
     val preview: WritePreview? = null,
     /** Speed/power settings as currently configured in the controller. */
     val tuning: DriveTuning? = null,
-    val tuningProblems: List<String> = emptyList(),
+    val feel: DrivingFeel? = null,
+    val maps: TorqueSpeedMaps? = null,
+    val profiles: List<Profile> = emptyList(),
+    /** Validation problems of the last preview request, shown on the editing screen. */
+    val problems: List<String> = emptyList(),
     /** True while the driver has to confirm that the car is safe for pre-operational mode. */
     val askPreOp: Boolean = false,
 )
@@ -80,9 +92,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state
 
-    private val store = BackupStore(
-        File(application.getExternalFilesDir(null) ?: application.filesDir, "backups")
-    )
+    private val dataDir = application.getExternalFilesDir(null) ?: application.filesDir
+    private val store = BackupStore(File(dataDir, "backups"))
+    private val profileStore = ProfileStore(File(dataDir, "profiles"))
 
     private var connection: TwizyConnection? = null
     private var job: Job? = null
@@ -150,7 +162,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- navigation and messages ---
 
-    fun show(screen: Screen) = _state.update { it.copy(screen = screen, error = null, message = null) }
+    fun show(screen: Screen) = _state.update { it.copy(screen = screen, error = null, message = null, problems = emptyList()) }
 
     fun answerPreOp(confirmed: Boolean) {
         preOpAnswer?.complete(confirmed)
@@ -231,21 +243,93 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openTuning() {
         show(Screen.TUNING)
         run("Reading speed and power settings…") { c ->
-            _state.update { it.copy(tuning = DriveTuningReader.read(c.sevcon, c.info.type), tuningProblems = emptyList()) }
+            _state.update { it.copy(tuning = DriveTuningReader.read(c.sevcon, c.info.type), problems = emptyList()) }
         }
     }
 
-    fun previewTuning(tuning: DriveTuning) = run("Calculating…") { c ->
-        val requests = try {
-            DriveTuningPlanner.plan(c.info.type, tuning)
-        } catch (e: TuningException) {
-            _state.update { it.copy(tuningProblems = e.problems) }
-            return@run
+    fun previewTuning(tuning: DriveTuning) = previewPlanned(
+        "Speed ${tuning.maxKph} km/h, torque ${tuning.torquePercent} %, power ${tuning.powerLowPercent} / ${tuning.powerHighPercent} %",
+        Screen.TUNING,
+    ) { c -> DriveTuningPlanner.plan(c.info.type, tuning) }
+
+    // --- driving feel ---
+
+    fun openFeel() {
+        show(Screen.FEEL)
+        run("Reading driving feel settings…") { c ->
+            _state.update { it.copy(feel = DrivingFeelReader.read(c.sevcon, c.info.type)) }
         }
-        _state.update { it.copy(tuningProblems = emptyList()) }
-        showPreview(c, "Speed ${tuning.maxKph} km/h, torque ${tuning.torquePercent} %, " +
-            "power ${tuning.powerLowPercent} / ${tuning.powerHighPercent} %", requests, Screen.TUNING)
     }
+
+    fun previewFeel(feel: DrivingFeel) = previewPlanned("Driving feel", Screen.FEEL) { c ->
+        DrivingFeelPlanner.plan(c.info.type, feel)
+    }
+
+    // --- torque/speed maps ---
+
+    fun openMaps() {
+        show(Screen.MAPS)
+        run("Reading torque/speed maps…") { c ->
+            _state.update { it.copy(maps = TorqueSpeedMaps.read(c.sevcon)) }
+        }
+    }
+
+    fun previewMaps(maps: TorqueSpeedMaps) = previewPlanned("Torque/speed maps", Screen.MAPS) { c ->
+        TorqueSpeedMapPlanner.plan(TorqueSpeedMaps.read(c.sevcon), maps)
+    }
+
+    // --- profiles ---
+
+    fun openProfiles() {
+        show(Screen.PROFILES)
+        refreshProfiles()
+    }
+
+    fun saveCurrentAsProfile(name: String) = run("Reading all settings…") { c ->
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) error("Please enter a name")
+        profileStore.save(Profile.read(c.sevcon, c.info.type, trimmed))
+        refreshProfiles()
+        _state.update { it.copy(message = "Saved profile '$trimmed'.") }
+    }
+
+    fun previewProfile(profile: Profile) = previewPlanned("Profile '${profile.name}'", Screen.PROFILES) { c ->
+        ProfilePlanner.plan(c.sevcon, c.info.type, profile)
+    }
+
+    fun deleteProfile(profile: Profile) {
+        profileStore.delete(profile)
+        refreshProfiles()
+    }
+
+    fun exportProfile(profile: Profile, target: Uri) = background {
+        getApplication<Application>().contentResolver.openOutputStream(target, "wt")!!.use {
+            it.write(profile.toJson().toByteArray())
+        }
+        _state.update { it.copy(message = "Profile exported.") }
+    }
+
+    fun importProfile(source: Uri) = background {
+        val text = getApplication<Application>().contentResolver.openInputStream(source)!!.use { it.readBytes().decodeToString() }
+        profileStore.save(Profile.fromJson(text))
+        refreshProfiles()
+        _state.update { it.copy(message = "Profile imported.") }
+    }
+
+    private fun refreshProfiles() = _state.update { it.copy(profiles = profileStore.list()) }
+
+    /** Plans requests with [plan]; validation problems stay on the editing screen. */
+    private fun previewPlanned(title: String, origin: Screen, plan: suspend (TwizyConnection) -> List<WriteRequest>) =
+        run("Calculating…") { c ->
+            val requests = try {
+                plan(c)
+            } catch (e: TuningException) {
+                _state.update { it.copy(problems = e.problems) }
+                return@run
+            }
+            _state.update { it.copy(problems = emptyList()) }
+            showPreview(c, title, requests, origin)
+        }
 
     // --- writing ---
 
@@ -277,8 +361,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             is WriteResult.Failed -> _state.update { it.copy(error = describe(result)) }
         }
         _state.update { it.copy(accessLevel = c.sevcon.accessLevel(), nmtState = c.sevcon.nmtState()) }
-        if (preview.origin == Screen.TUNING) {
-            _state.update { it.copy(tuning = DriveTuningReader.read(c.sevcon, c.info.type)) }
+        when (preview.origin) {
+            Screen.TUNING -> _state.update { it.copy(tuning = DriveTuningReader.read(c.sevcon, c.info.type)) }
+            Screen.FEEL -> _state.update { it.copy(feel = DrivingFeelReader.read(c.sevcon, c.info.type)) }
+            Screen.MAPS -> _state.update { it.copy(maps = TorqueSpeedMaps.read(c.sevcon)) }
+            else -> Unit
         }
     }
 

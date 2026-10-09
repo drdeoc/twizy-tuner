@@ -33,6 +33,13 @@ data class TuningDefaults(
     val powerHighLimit: Long,
     /** Factory torque/speed curve 0x4611:01..12 as (torque, rpm) pairs. */
     val powerMap: List<Long>,
+    /** Recuperation level (per mille of 0x2920:03/04) that OVMS calls [recupPercent] %. */
+    val recup: Long,
+    val recupPercent: Int,
+    val rampStart: Long,
+    val rampStartPermille: Int,
+    val rampAccel: Long,
+    val rampAccelPercent: Int,
 ) {
     companion object {
         val TWIZY80 = TuningDefaults(
@@ -49,6 +56,9 @@ data class TuningDefaults(
                 880, 0, 880, 2115, 659, 2700, 608, 3000, 516, 3500,
                 421, 4500, 360, 5500, 307, 6500, 273, 7250,
             ),
+            recup = 182, recupPercent = 18,
+            rampStart = 400, rampStartPermille = 40,
+            rampAccel = 2500, rampAccelPercent = 25,
         )
 
         val TWIZY45 = TuningDefaults(
@@ -65,6 +75,9 @@ data class TuningDefaults(
                 520, 0, 520, 2050, 437, 2500, 363, 3000, 314, 3500,
                 279, 4000, 247, 4500, 226, 5000, 195, 6000,
             ),
+            recup = 209, recupPercent = 21,
+            rampStart = 300, rampStartPermille = 30,
+            rampAccel = 2083, rampAccelPercent = 21,
         )
 
         fun of(type: ControllerType) = when (type) {

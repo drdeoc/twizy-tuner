@@ -142,9 +142,26 @@ class SimulatedSevcon(val type: ControllerType = ControllerType.TWIZY80) : CanCh
         if (accessLevel < Sevcon.LEVEL_ENGINEERING) return generalError(address, 0x4685)
         if (entry.needsPreOp && nmtState != 127L) return generalError(address, 0x4688)
         if (address in failingWrites) return generalError(address, 0x46FF)
+        if (!keepsMapOrder(address, raw)) return generalError(address, 0x4690)
         if (address == Sevcon.MAP_COMMIT) mapCommits++
         entry.bytes = data.copyOf(entry.size)
         return ok(address)
+    }
+
+    /**
+     * "Param dyn range": a torque/speed map rpm must stay between its neighbours (as OVMS
+     * observed on the real controller; the vendor code is made up).
+     */
+    private fun keepsMapOrder(address: ObjectAddress, rpm: Long): Boolean {
+        if (address.index != 0x3813) return true
+        val base = listOf(0x07, 0x1B, 0x24).firstOrNull { address.subIndex in it..it + 7 } ?: return true
+        val offset = address.subIndex - base
+        if (offset % 2 == 0) return true // level, not rpm
+        val point = offset / 2
+        fun rpmOf(p: Int) = value(ObjectAddress(0x3813, base + 2 * p + 1))
+        val low = if (point == 0) 0 else rpmOf(point - 1)
+        val high = if (point == 3) Long.MAX_VALUE else rpmOf(point + 1)
+        return rpm in low..high
     }
 
     private fun ok(address: ObjectAddress) = header(0x60, address)

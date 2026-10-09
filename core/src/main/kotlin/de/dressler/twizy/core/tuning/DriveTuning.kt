@@ -4,12 +4,14 @@ import de.dressler.twizy.core.params.SevconCatalog
 import de.dressler.twizy.core.sevcon.ControllerType
 import de.dressler.twizy.core.sevcon.Sevcon
 import de.dressler.twizy.core.write.WriteRequest
+import kotlinx.serialization.Serializable
 import kotlin.math.roundToInt
 
 /**
  * Speed and power settings. Percentages are relative to the factory values of the model.
  * Motor currents stay at the factory default (OVMS "limited" mode).
  */
+@Serializable
 data class DriveTuning(
     val maxKph: Int,
     /** Speed at which the overspeed warning (STOP lamp) switches on. */
@@ -144,11 +146,6 @@ object DriveTuningPlanner {
         return scale(d.rpmMax.toLong(), d.kphMax.toLong(), kph.toLong(), 400, 10_000)
     }
 
-    /** OVMS scale(): [default] scaled by [to]/[from], limited to [min]..[max]. */
-    private fun scale(default: Long, from: Long, to: Long, min: Long, max: Long): Long {
-        if (to == from) return default
-        return (default * to / from).coerceIn(min, max)
-    }
 }
 
 /** Estimates the current [DriveTuning] from the controller (like OVMS cfg_readmaxpwr). */

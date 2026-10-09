@@ -43,6 +43,9 @@ fun App(modifier: Modifier, vm: MainViewModel = viewModel()) {
             state.screen == Screen.PARAMETERS -> ParametersScreen(state, vm)
             state.screen == Screen.BACKUPS -> BackupsScreen(state, vm)
             state.screen == Screen.TUNING -> TuningScreen(state, vm)
+            state.screen == Screen.FEEL -> FeelScreen(state, vm)
+            state.screen == Screen.MAPS -> MapsScreen(state, vm)
+            state.screen == Screen.PROFILES -> ProfilesScreen(state, vm)
             state.screen == Screen.PREVIEW -> WritePreviewScreen(state, vm)
         }
     }

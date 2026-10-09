@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -31,7 +33,10 @@ fun HomeScreen(state: UiState, vm: MainViewModel) {
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { vm.show(Screen.PARAMETERS) }, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Parameters") }
+        Button(onClick = vm::openProfiles, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Profiles") }
         Button(onClick = vm::openTuning, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Speed & power") }
+        Button(onClick = vm::openFeel, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Driving feel") }
+        Button(onClick = vm::openMaps, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Torque/speed maps") }
         Button(onClick = { vm.show(Screen.BACKUPS) }, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Backup & restore") }
         OutlinedButton(onClick = vm::refreshStatus, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Refresh status") }
         OutlinedButton(onClick = vm::disconnect, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Disconnect") }

@@ -63,6 +63,11 @@ Layers in `core` (package `de.dressler.twizy.core`), from the bottom up:
      - a max speed whose braking triggers would exceed 10900 rpm: `maxKphFor()`, which gives 73 km/h for the Twizy 45. OVMS itself would write an unsafe `3813:35` there.
    - `DriveTuningReader` estimates the current tuning from the controller, like OVMS `cfg_readmaxpwr`.
    - A test sweeps about 65k input combinations and requires each one to be either rejected or fully within `SafetyLimits`.
+   - `DrivingFeel` covers drive level, recuperation, ramps and smoothing. These are written in operational mode, using OVMS `cfg_drive/recup/ramps/rampl/smoothing`. Shared helpers live in `Scale.kt` (`scale`, and `unscale` for read-back).
+   - `TorqueSpeedMaps`: the drive, neutral and brake maps in `3813`, 4 points each of (level 0..32767, rpm). The SEVCON rejects an rpm that passes a neighbour ("Param dyn range"), so `TorqueSpeedMapPlanner` emits points in an order where each new rpm fits between the neighbours' current rpm. The simulator enforces this rule.
+   - `Profile` bundles drive tuning, driving feel and maps (JSON, `ProfileStore`). `ProfilePlanner` reads the current maps to get the order right.
+   - `SafeWriter` writes operational-mode values first, then asks the guard, enters pre-op and writes the pre-op values, as OVMS does.
+   - The brake light (`cfg_brakelight`) is deliberately not implemented. According to OVMS it doesn't work without a hardware modification.
 9. **`sim.SimulatedSevcon`**: an in-memory SDO server preloaded with catalog defaults. It models access level, NMT state, objects that need pre-op, read-only identity objects, segmented strings, and fault injection (`unansweredRequests`, `failingWrites`, `refusePreOp`). Its `5310` vendor codes are invented.
 
 `TwizyConnection.open(transport)` ties the stack together and reads `ControllerInfo`.
@@ -99,7 +104,7 @@ Data types, signedness, units and which objects can be written in op mode are de
 - Phase 1 (done): stack, simulator, safe writer, and a read-only UI (connect, identify, read all parameters).
 - Phase 2 (done): full backup, auto-backup on first connect, restore from backup or factory defaults with old→new preview, import/export.
 - Phase 3 (done): speed & power screen (sliders, factory preset), sharing the generic write preview → backup → SafeWriter flow (`WritePreview`, `executePreview`).
-- Phase 4: recup/drive, ramps, smoothing, TS maps, brake light; profiles; Twizy45 throughout.
+- Phase 4 (done): driving feel, torque/speed maps, profiles (save current, apply, import/export, built-in factory). Not done: BMS-based auto power (needs broadcast frames, so it belongs to Phase 5) and the brake light (needs a hardware modification).
 - Phase 5 (optional): live dashboard from the broadcast frames.
 
 Features should be pure functions that turn intent into a `List<WriteRequest>`, with cross-parameter invariants (e.g. `3813:33 < 35 <= 3B`) checked there. Execution always goes through `SafeWriter`.

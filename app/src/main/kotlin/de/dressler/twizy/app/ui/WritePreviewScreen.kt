@@ -20,8 +20,8 @@ import de.dressler.twizy.app.MainViewModel
 import de.dressler.twizy.app.UiState
 
 @Composable
-fun RestoreScreen(state: UiState, vm: MainViewModel) {
-    val preview = state.restore ?: return
+fun WritePreviewScreen(state: UiState, vm: MainViewModel) {
+    val preview = state.preview ?: return
     val plan = preview.plan
     val idle = state.busy == null
 
@@ -39,8 +39,8 @@ fun RestoreScreen(state: UiState, vm: MainViewModel) {
         Text("A backup of the current values is made first, so this can be undone.", style = MaterialTheme.typography.bodySmall)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = vm::executeRestore, enabled = idle && !plan.isEmpty) { Text("Write ${plan.changes.size} values") }
-        OutlinedButton(onClick = vm::cancelRestore, enabled = idle) { Text("Cancel") }
+        Button(onClick = vm::executePreview, enabled = idle && !plan.isEmpty) { Text("Write ${plan.changes.size} values") }
+        OutlinedButton(onClick = vm::cancelPreview, enabled = idle) { Text("Cancel") }
     }
 
     LazyColumn(Modifier.fillMaxWidth()) {
@@ -67,12 +67,14 @@ fun RestoreScreen(state: UiState, vm: MainViewModel) {
                 }
             }
         }
-        item {
-            Text(
-                "${preview.readOnlyCount} read-only objects are never written.",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 16.dp),
-            )
+        preview.readOnlyCount?.let { count ->
+            item {
+                Text(
+                    "$count read-only objects are never written.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+            }
         }
     }
 }

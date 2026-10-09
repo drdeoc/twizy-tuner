@@ -31,6 +31,7 @@ fun HomeScreen(state: UiState, vm: MainViewModel) {
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { vm.show(Screen.PARAMETERS) }, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Parameters") }
+        Button(onClick = vm::openTuning, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Speed & power") }
         Button(onClick = { vm.show(Screen.BACKUPS) }, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Backup & restore") }
         OutlinedButton(onClick = vm::refreshStatus, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Refresh status") }
         OutlinedButton(onClick = vm::disconnect, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Disconnect") }

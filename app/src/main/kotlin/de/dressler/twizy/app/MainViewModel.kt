@@ -21,6 +21,11 @@ import de.dressler.twizy.core.sevcon.NmtState
 import de.dressler.twizy.core.sim.SimulatedElm327Transport
 import de.dressler.twizy.core.sim.SimulatedSevcon
 import de.dressler.twizy.core.transport.Transport
+import de.dressler.twizy.core.tuning.DriveTuning
+import de.dressler.twizy.core.tuning.DriveTuningPlanner
+import de.dressler.twizy.core.tuning.DriveTuningReader
+import de.dressler.twizy.core.tuning.TuningException
+import de.dressler.twizy.core.write.WriteRequest
 import de.dressler.twizy.core.write.PreOpGuard
 import de.dressler.twizy.core.write.WritePlan
 import de.dressler.twizy.core.write.WriteResult
@@ -39,13 +44,16 @@ data class Adapter(val name: String, val address: String)
 
 data class ParameterRow(val parameter: Parameter, val value: String?, val error: String?)
 
-enum class Screen { HOME, PARAMETERS, BACKUPS, RESTORE }
+enum class Screen { HOME, PARAMETERS, BACKUPS, TUNING, PREVIEW }
 
-data class RestorePreview(
+/** Changes waiting for the driver's OK, shown on the preview screen. */
+data class WritePreview(
     val title: String,
     val plan: WritePlan,
-    val skipped: List<SkippedEntry>,
-    val readOnlyCount: Int,
+    /** Screen to return to after writing or cancelling. */
+    val origin: Screen,
+    val skipped: List<SkippedEntry> = emptyList(),
+    val readOnlyCount: Int? = null,
 )
 
 data class UiState(
@@ -59,7 +67,10 @@ data class UiState(
     val nmtState: NmtState? = null,
     val rows: List<ParameterRow> = emptyList(),
     val backups: List<StoredBackup> = emptyList(),
-    val restore: RestorePreview? = null,
+    val preview: WritePreview? = null,
+    /** Speed/power settings as currently configured in the controller. */
+    val tuning: DriveTuning? = null,
+    val tuningProblems: List<String> = emptyList(),
     /** True while the driver has to confirm that the car is safe for pre-operational mode. */
     val askPreOp: Boolean = false,
 )
@@ -212,34 +223,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         preview("Restore factory defaults (${c.info.type.label})", c, RestorePlanner.factoryDefaults(c.info.type))
     }
 
-    fun cancelRestore() = _state.update { it.copy(restore = null, screen = Screen.BACKUPS) }
+    private suspend fun preview(title: String, c: TwizyConnection, selection: RestoreSelection) =
+        showPreview(c, title, selection.requests, Screen.BACKUPS, selection.skipped, selection.readOnlyCount)
 
-    fun executeRestore() = run("Writing…") { c ->
-        val preview = _state.value.restore ?: return@run
-        // Make the restore itself undoable.
+    // --- speed and power ---
+
+    fun openTuning() {
+        show(Screen.TUNING)
+        run("Reading speed and power settings…") { c ->
+            _state.update { it.copy(tuning = DriveTuningReader.read(c.sevcon, c.info.type), tuningProblems = emptyList()) }
+        }
+    }
+
+    fun previewTuning(tuning: DriveTuning) = run("Calculating…") { c ->
+        val requests = try {
+            DriveTuningPlanner.plan(c.info.type, tuning)
+        } catch (e: TuningException) {
+            _state.update { it.copy(tuningProblems = e.problems) }
+            return@run
+        }
+        _state.update { it.copy(tuningProblems = emptyList()) }
+        showPreview(c, "Speed ${tuning.maxKph} km/h, torque ${tuning.torquePercent} %, " +
+            "power ${tuning.powerLowPercent} / ${tuning.powerHighPercent} %", requests, Screen.TUNING)
+    }
+
+    // --- writing ---
+
+    private suspend fun showPreview(
+        c: TwizyConnection,
+        title: String,
+        requests: List<WriteRequest>,
+        origin: Screen,
+        skipped: List<SkippedEntry> = emptyList(),
+        readOnlyCount: Int? = null,
+    ) {
+        val plan = c.writer(guard).prepare(requests)
+        _state.update {
+            it.copy(preview = WritePreview(title, plan, origin, skipped, readOnlyCount), screen = Screen.PREVIEW)
+        }
+    }
+
+    fun cancelPreview() = _state.update { it.copy(preview = null, screen = it.preview?.origin ?: Screen.HOME) }
+
+    fun executePreview() = run("Writing…") { c ->
+        val preview = _state.value.preview ?: return@run
+        // A backup right before every write makes each change undoable.
         createBackup(c, "Before: ${preview.title}")
         _state.update { it.copy(busy = "Writing ${preview.plan.changes.size} values…", progress = null) }
         val result = c.writer(guard).execute(preview.plan)
-        _state.update { it.copy(restore = null, screen = Screen.BACKUPS) }
+        _state.update { it.copy(preview = null, screen = preview.origin) }
         when (result) {
-            is WriteResult.Success -> _state.update { it.copy(message = "Restored ${result.changes.size} values.") }
+            is WriteResult.Success -> _state.update { it.copy(message = "Wrote ${result.changes.size} values.") }
             is WriteResult.Failed -> _state.update { it.copy(error = describe(result)) }
         }
         _state.update { it.copy(accessLevel = c.sevcon.accessLevel(), nmtState = c.sevcon.nmtState()) }
-    }
-
-    private suspend fun preview(title: String, c: TwizyConnection, selection: RestoreSelection) {
-        val plan = c.writer(guard).prepare(selection.requests)
-        _state.update {
-            it.copy(
-                restore = RestorePreview(title, plan, selection.skipped, selection.readOnlyCount),
-                screen = Screen.RESTORE,
-            )
+        if (preview.origin == Screen.TUNING) {
+            _state.update { it.copy(tuning = DriveTuningReader.read(c.sevcon, c.info.type)) }
         }
     }
 
     private fun describe(result: WriteResult.Failed): String = buildString {
-        append("Restore failed: ${result.cause.message}")
+        append("Writing failed: ${result.cause.message}")
         if (result.rolledBack.isNotEmpty()) append("\n${result.rolledBack.size} values were written and then reset to their previous value.")
         if (result.rollbackFailures.isNotEmpty()) {
             append("\nWARNING: these values could not be reset and need attention:")

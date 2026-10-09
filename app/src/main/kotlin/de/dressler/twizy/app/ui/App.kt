@@ -24,7 +24,7 @@ fun App(modifier: Modifier, vm: MainViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
 
     BackHandler(enabled = state.info != null && state.screen != Screen.HOME && state.busy == null) {
-        if (state.screen == Screen.RESTORE) vm.cancelRestore() else vm.show(Screen.HOME)
+        if (state.screen == Screen.PREVIEW) vm.cancelPreview() else vm.show(Screen.HOME)
     }
 
     Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -42,7 +42,8 @@ fun App(modifier: Modifier, vm: MainViewModel = viewModel()) {
             state.screen == Screen.HOME -> HomeScreen(state, vm)
             state.screen == Screen.PARAMETERS -> ParametersScreen(state, vm)
             state.screen == Screen.BACKUPS -> BackupsScreen(state, vm)
-            state.screen == Screen.RESTORE -> RestoreScreen(state, vm)
+            state.screen == Screen.TUNING -> TuningScreen(state, vm)
+            state.screen == Screen.PREVIEW -> WritePreviewScreen(state, vm)
         }
     }
 

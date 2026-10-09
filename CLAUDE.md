@@ -47,9 +47,24 @@ Layers in `core` (package `de.dressler.twizy.core`), from the bottom up:
      6. On failure, rolls back in reverse order.
      7. Always returns to op.
    - The result is `WriteResult.Success` or `WriteResult.Failed`, which carries rollback details and whether op mode was restored.
-7. **`sim.SimulatedSevcon`**: an in-memory SDO server preloaded with catalog defaults. It models access level, NMT state, objects that need pre-op, read-only identity objects, segmented strings, and fault injection (`unansweredRequests`, `failingWrites`, `refusePreOp`). Its `5310` vendor codes are invented.
+7. **`backup`**:
+   - `BackupService` reads every catalog object into a `Backup`, which is JSON via kotlinx.serialization (`format = 1`, values decoded and signed). Objects that can't be read are stored with their error, but a lost connection aborts the backup.
+   - `BackupStore` keeps one JSON file per backup in a directory. It never overwrites and writes through a temp file.
+   - `RestorePlanner` turns a backup, or the factory defaults from the catalog, into `WriteRequest`s:
+     - Only `SafetyLimits` objects are included.
+     - Values outside the safe range are reported as `skipped`, not written.
+     - A backup from the other Twizy model is refused.
+   - Restores always go through `SafeWriter`.
+8. **`sim.SimulatedSevcon`**: an in-memory SDO server preloaded with catalog defaults. It models access level, NMT state, objects that need pre-op, read-only identity objects, segmented strings, and fault injection (`unansweredRequests`, `failingWrites`, `refusePreOp`). Its `5310` vendor codes are invented.
 
 `TwizyConnection.open(transport)` ties the stack together and reads `ControllerInfo`.
+
+In `:app`, `MainViewModel` (an AndroidViewModel holding a single `UiState`, with screens switched by the `Screen` enum, no navigation library) owns the connection:
+- **Backups:** stored in `getExternalFilesDir()/backups`. The app makes an automatic backup on the first connection to a controller type and another before every restore, and supports import/export through SAF.
+- **PreOpGuard:** implemented with a `CompletableDeferred` that the `PreOpDialog` completes.
+- **Busy state:** while `busy` is set, navigation and Disconnect are disabled, so a running write can't be cancelled halfway.
+
+The UI has not been tested on a device. The only system images installed are TV images, and those render black when headless.
 
 ## Regenerating the catalog
 
@@ -73,7 +88,7 @@ Data types, signedness, units and which objects can be written in op mode are de
 ## Roadmap
 
 - Phase 1 (done): stack, simulator, safe writer, and a read-only UI (connect, identify, read all parameters).
-- Phase 2: full backup to a file before the first write, and restore.
+- Phase 2 (done): full backup, auto-backup on first connect, restore from backup or factory defaults with old→new preview, import/export.
 - Phase 3: parity with the old app. Speed in kph using the OVMS `cfg_speed` offsets, power up/restore using `cfg_makepowermap`, and a pre-op guard dialog in the UI.
 - Phase 4: recup/drive, ramps, smoothing, TS maps, brake light; profiles; Twizy45 throughout.
 - Phase 5 (optional): live dashboard from the broadcast frames.

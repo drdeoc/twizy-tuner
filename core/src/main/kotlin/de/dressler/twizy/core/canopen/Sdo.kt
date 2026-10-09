@@ -13,6 +13,15 @@ data class ObjectAddress(val index: Int, val subIndex: Int) {
     }
 
     override fun toString() = "%04X:%02X".format(index, subIndex)
+
+    companion object {
+        /** Parses the [toString] form, e.g. "4611:01". */
+        fun parse(text: String): ObjectAddress {
+            val parts = text.split(':')
+            require(parts.size == 2) { "Not an object address: $text" }
+            return ObjectAddress(parts[0].toInt(16), parts[1].toInt(16))
+        }
+    }
 }
 
 open class SdoException(message: String) : Exception(message)

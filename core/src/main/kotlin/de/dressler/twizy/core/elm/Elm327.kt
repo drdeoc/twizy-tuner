@@ -2,6 +2,8 @@ package de.dressler.twizy.core.elm
 
 import de.dressler.twizy.core.canopen.CanChannel
 import de.dressler.twizy.core.transport.Transport
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 open class ElmException(message: String) : Exception(message)
 
@@ -28,6 +30,13 @@ class Elm327(
 
     var version: String? = null
         private set
+
+    /** Serializes SDO exchanges and broadcast monitoring, which both change the receive filter. */
+    private val mutex = Mutex()
+
+    /** CAN ID the adapter currently lets through (ATCRA), or null if unknown. */
+    private var rxFilter: Int? = null
+    private var sdoRxId: Int = 0
 
     /** Sends [command] and returns the raw answer without the trailing prompt. */
     suspend fun command(command: String, timeout: Long = timeoutMillis): String {
@@ -65,16 +74,62 @@ class Elm327(
         expectOk("ATSP6")             // ISO 15765-4 CAN, 11 bit, 500 kbaud
         expectOk("ATCAF0")            // raw frames, no ISO-TP formatting
         expectOk("ATSH%03X".format(txId))
-        expectOk("ATCRA%03X".format(rxId))
+        sdoRxId = rxId
+        setFilter(rxId)
     }
 
-    override suspend fun exchange(request: ByteArray): ByteArray {
+    override suspend fun exchange(request: ByteArray): ByteArray = mutex.withLock {
+        setFilter(sdoRxId)
         val cmd = request.toHex()
         val answer = lines(command(cmd))
         answer.firstOrNull { it.isErrorLine() }?.let { throw ElmErrorResponseException(cmd, it) }
         val frame = answer.firstOrNull { it.length == 16 && it.all(Char::isHexDigit) }
             ?: throw ElmException("No CAN frame in answer to '$cmd': $answer")
-        return frame.hexToBytes()
+        frame.hexToBytes()
+    }
+
+    /**
+     * Waits for one broadcast frame with CAN ID [id] ("free frame", as CanZE does it):
+     * restricts the receive filter to [id], monitors with ATMA until the first frame
+     * arrives, then stops monitoring. Returns null if no frame arrives within [timeout].
+     */
+    suspend fun monitor(id: Int, timeout: Long): ByteArray? = mutex.withLock {
+        setFilter(id)
+        transport.drain()
+        transport.write("ATMA\r".toByteArray(Charsets.US_ASCII))
+        val line = StringBuilder()
+        var frame: ByteArray? = null
+        var promptSeen = false
+        while (frame == null) {
+            val byte = transport.read(timeout) ?: break
+            when (val c = (byte.toInt() and 0xFF).toChar()) {
+                '\r', '\n' -> {
+                    val text = line.trim()
+                    if (text.isNotEmpty() && text.length % 2 == 0 && text.length <= 16 && text.all(Char::isHexDigit)) {
+                        frame = text.toString().hexToBytes()
+                    }
+                    line.clear()
+                }
+                PROMPT -> { promptSeen = true; break } // monitoring ended on its own (e.g. BUFFER FULL)
+                else -> line.append(c)
+            }
+        }
+        if (!promptSeen) {
+            // Any character stops monitoring; the adapter then finishes with a prompt.
+            transport.write("\r".toByteArray(Charsets.US_ASCII))
+            while (true) {
+                val byte = transport.read(timeoutMillis) ?: throw ElmTimeoutException("Adapter did not stop monitoring")
+                if ((byte.toInt() and 0xFF).toChar() == PROMPT) break
+            }
+        }
+        frame
+    }
+
+    private suspend fun setFilter(id: Int) {
+        if (rxFilter == id) return
+        rxFilter = null
+        expectOk("ATCRA%03X".format(id))
+        rxFilter = id
     }
 
     private suspend fun expectOk(cmd: String) {

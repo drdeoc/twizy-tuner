@@ -33,6 +33,7 @@ fun HomeScreen(state: UiState, vm: MainViewModel) {
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = { vm.show(Screen.PARAMETERS) }, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Parameters") }
+        Button(onClick = vm::openDashboard, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Live dashboard") }
         Button(onClick = vm::openProfiles, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Profiles") }
         Button(onClick = vm::openTuning, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Speed & power") }
         Button(onClick = vm::openFeel, enabled = idle, modifier = Modifier.fillMaxWidth()) { Text("Driving feel") }

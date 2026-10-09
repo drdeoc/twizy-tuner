@@ -6,11 +6,13 @@ import de.dressler.twizy.core.sevcon.ControllerType
 import de.dressler.twizy.core.sevcon.Sevcon
 import de.dressler.twizy.core.sim.SimulatedElm327Transport
 import de.dressler.twizy.core.sim.SimulatedSevcon
+import de.dressler.twizy.core.sim.SimulatedVehicle
 
 /** The full stack (ELM327 driver, SDO client, SEVCON service) on top of the simulator. */
 class SimStack(type: ControllerType = ControllerType.TWIZY80) {
     val sim = SimulatedSevcon(type)
-    val transport = SimulatedElm327Transport(sim)
+    val vehicle = SimulatedVehicle()
+    val transport = SimulatedElm327Transport(sim, vehicle)
     val elm = Elm327(transport)
     val sevcon = Sevcon(SdoClient(elm))
 

@@ -68,7 +68,14 @@ Layers in `core` (package `de.dressler.twizy.core`), from the bottom up:
    - `Profile` bundles drive tuning, driving feel and maps (JSON, `ProfileStore`). `ProfilePlanner` reads the current maps to get the order right.
    - `SafeWriter` writes operational-mode values first, then asks the guard, enters pre-op and writes the pre-op values, as OVMS does.
    - The brake light (`cfg_brakelight`) is deliberately not implemented. According to OVMS it doesn't work without a hardware modification.
-9. **`sim.SimulatedSevcon`**: an in-memory SDO server preloaded with catalog defaults. It models access level, NMT state, objects that need pre-op, read-only identity objects, segmented strings, and fault injection (`unansweredRequests`, `failingWrites`, `refusePreOp`). Its `5310` vendor codes are invented.
+9. **`live`**: broadcast frames.
+   - `Elm327.monitor(id)` grabs one frame using the CanZE "free frame" technique: set `ATCRA <id>`, send `ATMA`, take the first line, stop with a CR. `exchange()` switches the filter back to 0x581. Both run under one mutex.
+   - Never cancel a coroutine inside `monitor()`, because the adapter would be left monitoring. The app's dashboard loop stops cooperatively through a flag.
+   - `Frames` holds the decoders, taken from the Objektverzeichnis and cross-checked against the OVMS poll handlers. Tests use the real sample frames from the spreadsheet's "BMS-Replay" sheet.
+   - `LiveData` is the aggregate. `LiveMonitor.refresh()` fetches the fast IDs plus one slow ID per cycle.
+   - `VehicleGuard` reproduces the OVMS triple check: it refuses pre-op unless 0x59B shows N without GO and 0x599 shows speed 0, and refuses if the frames can't be read. Only then does it ask the driver. `TwizyConnection.writer()` always wraps the UI's confirmation in it.
+   - OVMS auto-power (continuously rewriting drive/recup from BMS limits while driving) is deliberately not implemented.
+10. **`sim.SimulatedSevcon`**: an in-memory SDO server preloaded with catalog defaults. It models access level, NMT state, objects that need pre-op, read-only identity objects, segmented strings, and fault injection (`unansweredRequests`, `failingWrites`, `refusePreOp`). Its `5310` vendor codes are invented.
 
 `TwizyConnection.open(transport)` ties the stack together and reads `ControllerInfo`.
 
@@ -105,6 +112,6 @@ Data types, signedness, units and which objects can be written in op mode are de
 - Phase 2 (done): full backup, auto-backup on first connect, restore from backup or factory defaults with old→new preview, import/export.
 - Phase 3 (done): speed & power screen (sliders, factory preset), sharing the generic write preview → backup → SafeWriter flow (`WritePreview`, `executePreview`).
 - Phase 4 (done): driving feel, torque/speed maps, profiles (save current, apply, import/export, built-in factory). Not done: BMS-based auto power (needs broadcast frames, so it belongs to Phase 5) and the brake light (needs a hardware modification).
-- Phase 5 (optional): live dashboard from the broadcast frames.
+- Phase 5 (done): live dashboard, automatic vehicle-state check before configuration mode, and `sim.SimulatedVehicle` for the app's simulator mode.
 
 Features should be pure functions that turn intent into a `List<WriteRequest>`, with cross-parameter invariants (e.g. `3813:33 < 35 <= 3B`) checked there. Execution always goes through `SafeWriter`.

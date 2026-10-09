@@ -2,6 +2,8 @@ package de.dressler.twizy.core
 
 import de.dressler.twizy.core.canopen.SdoClient
 import de.dressler.twizy.core.elm.Elm327
+import de.dressler.twizy.core.live.LiveMonitor
+import de.dressler.twizy.core.live.VehicleGuard
 import de.dressler.twizy.core.sevcon.ControllerType
 import de.dressler.twizy.core.sevcon.Sevcon
 import de.dressler.twizy.core.transport.Transport
@@ -20,10 +22,15 @@ data class ControllerInfo(
 class TwizyConnection private constructor(
     private val transport: Transport,
     val sevcon: Sevcon,
+    val live: LiveMonitor,
     val info: ControllerInfo,
 ) : AutoCloseable {
 
-    fun writer(guard: PreOpGuard) = SafeWriter(sevcon, guard)
+    /**
+     * A writer whose pre-operational check first verifies from the live CAN frames that the
+     * car stands still in N without GO, and only then asks the driver ([confirm]).
+     */
+    fun writer(confirm: PreOpGuard) = SafeWriter(sevcon, VehicleGuard(live, confirm))
 
     override fun close() = transport.close()
 
@@ -42,7 +49,7 @@ class TwizyConnection private constructor(
                     softwareVersion = sevcon.readString(Sevcon.SOFTWARE_VERSION),
                     adapterVersion = elm.version.orEmpty(),
                 )
-                return TwizyConnection(transport, sevcon, info)
+                return TwizyConnection(transport, sevcon, LiveMonitor(elm), info)
             } catch (e: Exception) {
                 transport.close()
                 throw e

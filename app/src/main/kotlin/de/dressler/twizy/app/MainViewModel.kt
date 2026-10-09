@@ -15,11 +15,13 @@ import de.dressler.twizy.core.backup.RestorePlanner
 import de.dressler.twizy.core.backup.RestoreSelection
 import de.dressler.twizy.core.backup.SkippedEntry
 import de.dressler.twizy.core.backup.StoredBackup
+import de.dressler.twizy.core.live.LiveData
 import de.dressler.twizy.core.params.Parameter
 import de.dressler.twizy.core.params.SevconCatalog
 import de.dressler.twizy.core.sevcon.NmtState
 import de.dressler.twizy.core.sim.SimulatedElm327Transport
 import de.dressler.twizy.core.sim.SimulatedSevcon
+import de.dressler.twizy.core.sim.SimulatedVehicle
 import de.dressler.twizy.core.transport.Transport
 import de.dressler.twizy.core.tuning.DriveTuning
 import de.dressler.twizy.core.tuning.DriveTuningPlanner
@@ -40,6 +42,7 @@ import de.dressler.twizy.core.write.WriteResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -52,7 +55,7 @@ data class Adapter(val name: String, val address: String)
 
 data class ParameterRow(val parameter: Parameter, val value: String?, val error: String?)
 
-enum class Screen { HOME, PARAMETERS, BACKUPS, TUNING, FEEL, MAPS, PROFILES, PREVIEW }
+enum class Screen { HOME, DASHBOARD, PARAMETERS, BACKUPS, TUNING, FEEL, MAPS, PROFILES, PREVIEW }
 
 /** Changes waiting for the driver's OK, shown on the preview screen. */
 data class WritePreview(
@@ -83,6 +86,7 @@ data class UiState(
     val profiles: List<Profile> = emptyList(),
     /** Validation problems of the last preview request, shown on the editing screen. */
     val problems: List<String> = emptyList(),
+    val live: LiveData? = null,
     /** True while the driver has to confirm that the car is safe for pre-operational mode. */
     val askPreOp: Boolean = false,
 )
@@ -99,6 +103,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var connection: TwizyConnection? = null
     private var job: Job? = null
     private var preOpAnswer: CompletableDeferred<Boolean>? = null
+
+    /** The dashboard loop checks this between frames; it is never cancelled mid-frame. */
+    @Volatile
+    private var dashboardActive = false
 
     private val guard = PreOpGuard {
         val answer = CompletableDeferred<Boolean>()
@@ -126,9 +134,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         BluetoothSppTransport.connect(adapter.getRemoteDevice(device.address))
     }
 
-    fun connectSimulator() = open("Starting simulator…") { SimulatedElm327Transport(SimulatedSevcon()) }
+    fun connectSimulator() = open("Starting simulator…") {
+        SimulatedElm327Transport(SimulatedSevcon(), SimulatedVehicle())
+    }
 
     fun disconnect() {
+        dashboardActive = false
         job?.cancel()
         preOpAnswer?.complete(false)
         connection?.close()
@@ -162,7 +173,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- navigation and messages ---
 
-    fun show(screen: Screen) = _state.update { it.copy(screen = screen, error = null, message = null, problems = emptyList()) }
+    fun show(screen: Screen) {
+        if (screen != Screen.DASHBOARD) dashboardActive = false
+        _state.update { it.copy(screen = screen, error = null, message = null, problems = emptyList()) }
+    }
+
+    // --- dashboard ---
+
+    fun openDashboard() {
+        show(Screen.DASHBOARD)
+        val c = connection ?: return
+        if (dashboardActive) return
+        dashboardActive = true
+        viewModelScope.launch(Dispatchers.IO) {
+            var cycle = 0
+            while (dashboardActive) {
+                try {
+                    val data = c.live.refresh(_state.value.live ?: LiveData(), cycle++)
+                    if (dashboardActive) _state.update { it.copy(live = data, error = null) }
+                } catch (e: Exception) {
+                    _state.update { it.copy(error = "Live data: ${e.message}") }
+                    delay(1_000)
+                }
+            }
+        }
+    }
+
 
     fun answerPreOp(confirmed: Boolean) {
         preOpAnswer?.complete(confirmed)

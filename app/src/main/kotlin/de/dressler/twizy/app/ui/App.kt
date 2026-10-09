@@ -42,6 +42,7 @@ fun App(modifier: Modifier, vm: MainViewModel = viewModel()) {
             state.screen == Screen.HOME -> HomeScreen(state, vm)
             state.screen == Screen.PARAMETERS -> ParametersScreen(state, vm)
             state.screen == Screen.BACKUPS -> BackupsScreen(state, vm)
+            state.screen == Screen.DASHBOARD -> DashboardScreen(state, vm)
             state.screen == Screen.TUNING -> TuningScreen(state, vm)
             state.screen == Screen.FEEL -> FeelScreen(state, vm)
             state.screen == Screen.MAPS -> MapsScreen(state, vm)
